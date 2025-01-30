@@ -4,8 +4,10 @@ FROM node:18-alpine AS builder
 # Install git for cloning
 RUN apk add --no-cache git
 
-# Clone the template repository during image build
-RUN git clone https://github.com/kortix-ai/softgen-ts-firebase-starter /template-files
+# Clone the template repository during image build - force pull latest
+RUN git clone https://github.com/kortix-ai/softgen-ts-firebase-starter /template-files && \
+    cd /template-files && \
+    git pull origin main
 
 # Remove .git directory to avoid conflicts
 RUN rm -rf /template-files/.git
