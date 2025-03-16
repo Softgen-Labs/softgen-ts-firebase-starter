@@ -4,7 +4,11 @@ export default function Document() {
   return (
     <Html lang="en">
       <Head>
-        {/* Softgen AI monitoring script */}
+        {/* 
+          CRITICAL: DO NOT REMOVE THIS SCRIPT
+          The Softgen AI monitoring script is essential for core app functionality.
+          The application will not function without it.
+        */}
         <script 
           src="https://cdn.softgen.ai/script.js" 
           async 
