@@ -7,10 +7,8 @@ RUN apk add --no-cache git
 # Clone the template repository during image build - force pull latest
 RUN git clone https://github.com/kortix-ai/softgen-ts-firebase-starter /template-files && \
     cd /template-files && \
-    git pull origin main
-
-# Remove .git directory to avoid conflicts
-RUN rm -rf /template-files/.git
+    git pull origin main && \
+    rm -rf /template-files/.git # Remove .git directory to avoid conflicts
 
 # Final stage
 FROM node:18-alpine
@@ -37,6 +35,4 @@ COPY init-workspace.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/init-workspace.sh
 
 # Use initialization script as entrypoint
-ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/init-workspace.sh && sleep infinity"]
-
-
+ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/init-workspace.sh && cd /app && pm2 start && sleep infinity"]
