@@ -9,6 +9,7 @@ const nextConfig = {
       },
     ],
   },
+  allowedDevOrigins: ['*.daytona.work'],
 };
 
 export default nextConfig;
