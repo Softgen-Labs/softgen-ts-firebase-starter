@@ -35,4 +35,4 @@ COPY init-workspace.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/init-workspace.sh
 
 # Use initialization script as entrypoint
-ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/init-workspace.sh && cd /app && pm2 start && sleep infinity"]
+ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/init-workspace.sh && cd /app && [ -f ecosystem.config.js ] && pm2 start || echo 'ecosystem.config.js not found, skipping pm2 start' && sleep infinity"]
