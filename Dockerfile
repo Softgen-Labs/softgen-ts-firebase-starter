@@ -8,7 +8,7 @@ RUN apk add --no-cache git
 RUN git clone https://github.com/kortix-ai/softgen-ts-firebase-starter /template-files && \
     cd /template-files && \
     git pull origin main && \
-    rm -rf /template-files/.git # Remove .git directory to avoid conflicts
+    rm -rf /template-files/.git /template-files/.github # Remove to avoid conflicts
 
 # Final stage
 FROM node:18-alpine
@@ -16,7 +16,7 @@ FROM node:18-alpine
 # Metadata
 LABEL maintainer="Softgen AI"
 LABEL description="Softgen AI Starter"
-LABEL version="1.0"
+LABEL version="2.0.11"
 
 # Install global dependencies
 RUN npm install -g pm2 vercel firebase-tools
