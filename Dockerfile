@@ -16,17 +16,16 @@ FROM node:18-alpine
 # Metadata
 LABEL maintainer="Softgen AI"
 LABEL description="Softgen AI Starter"
-LABEL version="2.0.11"
+LABEL version="2.1.0"
 
 # Install global dependencies
-RUN npm install -g pm2 vercel firebase-tools
+RUN npm install -g pm2 vercel
 RUN apk add --no-cache tmux git
 
 # Copy template files from builder stage
 COPY --from=builder /template-files /template-files
 
 # Set up environment
-ENV GOOGLE_APPLICATION_CREDENTIALS="/app/firebase-service-account.json"
 EXPOSE 3000
 WORKDIR /app
 
