@@ -1,6 +1,6 @@
 {
-  "name": "softgen-firebase-starter",
-  "version": "0.1.0",
+  "name": "softgen-starter",
+  "version": "2.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
