@@ -10,10 +10,10 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
       
-      <main className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <main className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
-          <h1 className="text-4xl font-bold text-gray-900">Hello World</h1>
-          <p className="text-lg text-gray-600">This is going to be your softgen app, start by describing your project.</p>
+          <h1 className="text-4xl font-bold text-foreground">Hello World</h1>
+          <p className="text-lg text-muted-foreground">This is going to be your softgen app, start by describing your project.</p>
         </div>
       </main>
     </>
