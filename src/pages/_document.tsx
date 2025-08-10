@@ -18,8 +18,7 @@ export default function Document() {
       </Head>
       <body
         className={cn(
-          "min-h-screen w-full scroll-smooth bg-background text-foreground antialiased",
-          "transition-all duration-100 ease-in-out"
+          "min-h-screen w-full scroll-smooth bg-background text-foreground antialiased"
         )}
         suppressHydrationWarning
       >
