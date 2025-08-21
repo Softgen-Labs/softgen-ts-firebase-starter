@@ -16,7 +16,7 @@ FROM node:18-alpine
 # Metadata
 LABEL maintainer="Softgen AI"
 LABEL description="Softgen AI Starter"
-LABEL version="2.2.1"
+LABEL version="2.2.2"
 
 # Install global dependencies and security updates
 RUN npm install -g pm2 vercel && \
