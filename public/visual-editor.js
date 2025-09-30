@@ -23,19 +23,32 @@
   // Parse data-sg-el: "file:line:col" → {id, filePath, line, column}
   function getMetadata(el) {
     const id = el.getAttribute("data-sg-el");
-    const content = el.getAttribute("data-component-content");
+    const contentEncoded = el.getAttribute("data-component-content");
 
     if (!id) return null;
 
     const match = id.match(/^(.+):(\d+):(\d+)$/);
     if (!match) return null;
 
+    // Parse raw JSON content: {"text":"...", "className":"..."}
+    let textContent = "";
+    if (contentEncoded) {
+      try {
+        // Direct JSON parse - no encoding overhead for dev mode
+        const contentObj = JSON.parse(contentEncoded);
+        textContent = contentObj.text || "";
+      } catch {
+        // Fallback to raw content if not JSON
+        textContent = contentEncoded;
+      }
+    }
+
     return {
       id,
       filePath: match[1],
       line: parseInt(match[2], 10),
       column: parseInt(match[3], 10),
-      content: content || ""
+      content: textContent,
     };
   }
 
@@ -62,7 +75,7 @@
         tagName: el.tagName.toLowerCase(),
         className: el.className || "",
         id: el.id || "",
-        textContent: meta?.content || el.textContent?.trim() || ""
+        textContent: meta?.content || el.textContent?.trim() || "",
       },
       rect: {
         x: rect.x,
@@ -72,8 +85,8 @@
         top: rect.top,
         left: rect.left,
         right: rect.right,
-        bottom: rect.bottom
-      }
+        bottom: rect.bottom,
+      },
     };
 
     // Only include styles for click (selection), not hover
@@ -91,7 +104,7 @@
         fontSize: style.fontSize,
         fontWeight: style.fontWeight,
         color: style.color,
-        backgroundColor: style.backgroundColor
+        backgroundColor: style.backgroundColor,
       };
     }
 
@@ -208,7 +221,7 @@
         enabled: false,
         ready: true,
         url: window.location.href,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
     };
 

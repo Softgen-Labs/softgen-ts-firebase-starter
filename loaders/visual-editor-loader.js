@@ -56,24 +56,49 @@ module.exports = function (source) {
           // Column number is the position in the line
           const columnNumber = offset;
 
-          // Extract text content if it's on the same line
+          // Extract text content - look ahead across multiple lines if needed
           let textContent = "";
           const restOfLine = line.substring(offset + match.length);
-          const textMatch = restOfLine.match(/^([^<{]+)/);
+
+          // Build remaining source from current position
+          const remainingSource = [
+            restOfLine,
+            ...lines.slice(lineIndex + 1),
+          ].join("\n");
+
+          // Match text content until we hit < or { (start of JSX element or expression)
+          const textMatch = remainingSource.match(/^([^<{]+)/);
           if (textMatch) {
+            // Preserve newlines but trim leading/trailing whitespace
             textContent = textMatch[1].trim();
           }
 
-          // Build data attributes
-          // data-sg-el: Primary identifier (file:line:col) for AST location
-          // data-component-content: Embedded text content for quick access
-          const dataSgEl = `${filePath}:${lineNumber}:${columnNumber}`;
-          const dataComponentContent = textContent.replace(/"/g, "&quot;"); // Escape quotes
+          // Extract className from attrs
+          const classNameMatch = attrs.match(/className=["']([^"']+)["']/);
+          const className = classNameMatch ? classNameMatch[1] : "";
 
-          // Add attributes
+          // Build data attributes (Raw JSON for dev mode - fastest and most debuggable)
+          // data-sg-el: Primary identifier (file:line:col) for AST location
+          // data-component-content: JSON with text + className, no encoding
+          const dataSgEl = `${filePath}:${lineNumber}:${columnNumber}`;
+
+          // Build JSON object with text and className
+          const contentObj = {
+            text: textContent,
+            className: className,
+          };
+
+          // Raw JSON - no encoding overhead, perfect for debugging
+          // Escape single quotes to avoid breaking HTML attribute (we use single quotes for the attribute)
+          const dataComponentContent = JSON.stringify(contentObj).replace(
+            /'/g,
+            "&#39;"
+          );
+
+          // Add attributes (using single quotes for data-component-content to avoid JSON double-quote conflicts)
           const newAttrs = attrs.trim()
-            ? `${attrs} data-sg-el="${dataSgEl}" data-component-content="${dataComponentContent}"`
-            : ` data-sg-el="${dataSgEl}" data-component-content="${dataComponentContent}"`;
+            ? `${attrs} data-sg-el="${dataSgEl}" data-component-content='${dataComponentContent}'`
+            : ` data-sg-el="${dataSgEl}" data-component-content='${dataComponentContent}'`;
 
           return `<${tagName}${newAttrs}${closingBracket}`;
         }
