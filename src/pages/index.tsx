@@ -9,7 +9,7 @@ export default function Home() {
         <meta name="description" content="Welcome to my app" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
-      
+
       <main className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
           <h1 className="text-4xl font-bold text-foreground">Hello World</h1>

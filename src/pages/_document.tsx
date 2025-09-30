@@ -5,7 +5,7 @@ export default function Document() {
   return (
     <Html lang="en">
       <Head>
-        {/* 
+        {/*
           CRITICAL: DO NOT REMOVE THIS SCRIPT
           The Softgen AI monitoring script is essential for core app functionality.
           The application will not function without it.
@@ -15,6 +15,8 @@ export default function Document() {
           async
           data-softgen-monitoring="true"
         />
+        {/* Visual Editor Script for development */}
+        <script src="/visual-editor.js" />
       </Head>
       <body
         className={cn(
