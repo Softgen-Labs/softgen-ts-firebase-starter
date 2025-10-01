@@ -16,7 +16,11 @@ export default function Document() {
           data-softgen-monitoring="true"
         />
         {/* Visual Editor Script for development */}
-        <script src="/visual-editor.js" />
+        <script
+          src="/visual-editor.js"
+          async
+          data-softgen-visual-editor="true"
+        />
       </Head>
       <body
         className={cn(
