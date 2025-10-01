@@ -35,7 +35,28 @@ export default function visualEditorLoader(source) {
 
     const magicString = new MagicString(source);
 
-    const excludedElements = new Set(["Fragment", "React.Fragment"]);
+    // Elements to EXCLUDE from tagging:
+    // - React Fragments (not real DOM elements)
+    // - Document structure (_document.tsx elements: Html, Head, body, Main, NextScript)
+    // - Head elements (title, meta, link, script, style, etc.)
+    const excludedElements = new Set([
+      "Fragment",
+      "React.Fragment",
+      "Html",
+      "Head",
+      "body",
+      "Main",
+      "NextScript",
+      "html",
+      "head",
+      "title",
+      "meta",
+      "link",
+      "script",
+      "style",
+      "base",
+      "noscript",
+    ]);
 
     let insertCount = 0;
 

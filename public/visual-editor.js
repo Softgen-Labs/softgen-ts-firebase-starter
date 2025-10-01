@@ -22,10 +22,65 @@
     // Messages from platform to iframe
     ENABLE_EDIT_MODE: "ENABLE_EDIT_MODE",
     DISABLE_EDIT_MODE: "DISABLE_EDIT_MODE",
-    UPDATE_COMPONENT: "UPDATE_COMPONENT",
+    UPDATE_TEXT_CONTENT: "UPDATE_TEXT_CONTENT",
+    UPDATE_STYLES: "UPDATE_STYLES",
     DELETE_ELEMENT: "DELETE_ELEMENT",
     CLEAR_SELECTION: "CLEAR_SELECTION",
   };
+
+  // Configuration constants
+  const CONFIG = {
+    FULL_WIDTH_THRESHOLD_PX: 5,
+  };
+
+  // Text elements that support inline editing (must have direct text content)
+  const TEXT_ELEMENT_TAGS = new Set([
+    // Headings
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    // Paragraphs and inline text
+    "p",
+    "span",
+    "strong",
+    "em",
+    "b",
+    "i",
+    "u",
+    "small",
+    "mark",
+    "del",
+    "ins",
+    "sub",
+    "sup",
+    // Interactive text elements
+    "button",
+    "a",
+    "label",
+    // List items (contain direct text)
+    "li",
+    "dt",
+    "dd",
+    // Table cells (contain direct text)
+    "td",
+    "th",
+    // Form text elements
+    "legend",
+    "figcaption",
+    "caption",
+    // Code elements
+    "code",
+    "kbd",
+    "samp",
+    "var",
+    // Quotes
+    "blockquote",
+    "q",
+    "cite",
+  ]);
 
   let isEditModeEnabled = false;
   let hoveredElement = null;
@@ -117,7 +172,7 @@
       // Send real-time updates
       sendMessage(MESSAGE_TYPES.ELEMENT_TEXT_UPDATED, {
         text: el.textContent || "",
-        metadata: getMetadata(el),
+        metadata: parseElementLocation(el),
       });
     };
 
@@ -127,10 +182,16 @@
     // Store handlers for cleanup
     el._sgEditorHandlers = { handleBlur, handleInput };
 
-    sendMessage(MESSAGE_TYPES.INLINE_EDIT_STARTED, buildPayload(el, false));
+    sendMessage(
+      MESSAGE_TYPES.INLINE_EDIT_STARTED,
+      buildElementPayload(el, false)
+    );
 
     // Open editor popover when editing starts
-    sendMessage(MESSAGE_TYPES.OPEN_EDITOR_POPOVER, buildPayload(el, true));
+    sendMessage(
+      MESSAGE_TYPES.OPEN_EDITOR_POPOVER,
+      buildElementPayload(el, true)
+    );
   }
 
   // Stop inline text editing
@@ -161,13 +222,13 @@
       sendMessage(MESSAGE_TYPES.INLINE_EDIT_SAVED, {
         text: newText,
         originalText: originalText,
-        metadata: getMetadata(el),
+        metadata: parseElementLocation(el),
         changed: true,
       });
     } else {
       sendMessage(MESSAGE_TYPES.INLINE_EDIT_CANCELLED, {
         text: originalText,
-        metadata: getMetadata(el),
+        metadata: parseElementLocation(el),
         changed: false,
       });
     }
@@ -188,8 +249,13 @@
     }
   }
 
-  // Parse data-sg-el: "file:line:col" → {id, filePath, line, column}
-  function getMetadata(el) {
+  /**
+   * Parse element location from data-sg-el attribute
+   * Format: "file:line:col" → {id, filePath, line, column}
+   * @param {HTMLElement} el - Element with data-sg-el attribute
+   * @returns {{id: string, filePath: string, line: number, column: number} | null}
+   */
+  function parseElementLocation(el) {
     const id = el.getAttribute("data-sg-el");
     if (!id) return null;
 
@@ -204,59 +270,16 @@
     };
   }
 
-  // Check if element should be editable
-  // Returns: { isEditable: boolean, reason: string }
-  // Note: Lovable-style approach - we tag EVERYTHING, so we filter at runtime
+  /**
+   * Check if element is editable (text and/or styles)
+   * PHILOSOPHY: Restrictive allowlist - explicitly define what's safe to edit.
+   * Better to start restrictive and allow more later than break layouts.
+   * @param {HTMLElement} el - Element to check
+   * @returns {{isTextEditable: boolean, canEditStyles: boolean}}
+   */
   function checkEditability(el) {
     const tagName = el.tagName.toLowerCase();
-    const sourceName = el.getAttribute("data-sg-name") || tagName;
-
-    // Prefer runtime element name over variable names like "Comp"
-    // If data-sg-name looks like a variable (PascalCase, 1 word), and it's a common HTML element,
-    // trust the runtime tagName instead
-    const isLikelyVariable = sourceName && /^[A-Z][a-z]*$/.test(sourceName) && sourceName !== tagName;
-    const componentName = isLikelyVariable ? tagName : sourceName;
-
     const computedStyle = window.getComputedStyle(el);
-
-    // Filter out structural/container elements that shouldn't be directly editable
-    // Note: li, td, th, dt, dd are EDITABLE (removed from this list)
-    const nonEditableElements = new Set([
-      "div",
-      "section",
-      "article",
-      "header",
-      "footer",
-      "nav",
-      "aside",
-      "main",
-      "ul",
-      "ol",
-      "table",
-      "thead",
-      "tbody",
-      "tr",
-      "form",
-      "fieldset",
-      "legend",
-      "iframe",
-      "canvas",
-      "svg",
-      "path",
-      "g",
-      "circle",
-      "rect",
-      "line",
-      "polyline",
-      "polygon"
-    ]);
-
-    // Check if it's a structural element (unless it's a component wrapper)
-    if (nonEditableElements.has(tagName) && tagName === componentName.toLowerCase()) {
-      return {
-        isEditable: false,
-      };
-    }
 
     // Check for preserved whitespace (CSS can be dynamic)
     const whiteSpace = computedStyle.whiteSpace;
@@ -266,22 +289,46 @@
       whiteSpace === "pre-wrap"
     ) {
       return {
-        isEditable: false,
+        isTextEditable: false,
+        canEditStyles: false, // Don't mess with code formatting
       };
     }
 
-    // Check for <code> elements (code blocks shouldn't be edited visually)
+    // Check for <code>/<pre> elements (code blocks shouldn't be edited visually)
     if (tagName === "code" || tagName === "pre") {
       return {
-        isEditable: false,
+        isTextEditable: false,
+        canEditStyles: false, // Don't mess with code formatting
       };
     }
 
-    // All other tagged elements are potentially editable
-    // This includes: text elements (p, h1-h6, span), buttons, links, labels, and React components
+    // ✅ EXPLICIT ALLOWLIST - Only these elements support text editing
+    // This is the single source of truth (TEXT_ELEMENT_TAGS)
+    if (TEXT_ELEMENT_TAGS.has(tagName)) {
+      return {
+        isTextEditable: true,
+        canEditStyles: true,
+      };
+    }
+
+    // Everything else: styles only (safe default for containers, custom components, etc.)
+    // This includes: div, section, article, custom React components, etc.
     return {
-      isEditable: true,
+      isTextEditable: false,
+      canEditStyles: true, // Can still edit margins, padding, colors
     };
+  }
+
+  // Check if element has direct text content (not just nested in children)
+  // This helps identify if an element is truly a "text element" vs a container
+  function hasDirectTextContent(el) {
+    // Check if element has any direct text nodes (not just whitespace)
+    for (const node of el.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // Get element text content intelligently
@@ -309,7 +356,58 @@
     return el.innerText?.trim() || "";
   }
 
-  // Find closest element with data-sg-el
+  /**
+   * Detect if element spans full viewport width
+   * @param {HTMLElement} el - Element to check
+   * @returns {boolean} True if element is full-width
+   */
+  function isFullWidth(el) {
+    const rect = el.getBoundingClientRect();
+    return (
+      Math.abs(rect.width - window.innerWidth) < CONFIG.FULL_WIDTH_THRESHOLD_PX
+    );
+  }
+
+  /**
+   * Apply full-width attribute if needed
+   * @param {HTMLElement} el - Element to check and update
+   */
+  function applyFullWidthAttribute(el) {
+    if (isFullWidth(el)) {
+      el.setAttribute("data-sg-full-width", "true");
+    }
+  }
+
+  /**
+   * Clear element visual state attributes
+   * @param {HTMLElement} el - Element to clear
+   * @param {string} type - Type of highlight to clear: 'hover', 'select', 'edit', or 'all'
+   */
+  function clearElementHighlight(el, type = "all") {
+    if (!el) return;
+
+    const attributeMap = {
+      hover: ["data-sg-hovered", "data-sg-full-width"],
+      select: ["data-sg-selected", "data-sg-full-width"],
+      edit: ["data-sg-editing", "contenteditable"],
+      all: [
+        "data-sg-hovered",
+        "data-sg-selected",
+        "data-sg-editing",
+        "data-sg-full-width",
+        "contenteditable",
+      ],
+    };
+
+    const attrs = attributeMap[type] || attributeMap.all;
+    attrs.forEach((attr) => el.removeAttribute(attr));
+  }
+
+  /**
+   * Find closest element with data-sg-el tracking attribute
+   * @param {HTMLElement} target - Starting element
+   * @returns {HTMLElement | null} Tracked element or null
+   */
   function findTrackedElement(target) {
     let el = target;
     while (el && el !== document.body) {
@@ -319,16 +417,22 @@
     return null;
   }
 
-  // Build payload with element data (read from DOM - WYSIWYG principle)
-  function buildPayload(el, includeStyles) {
+  /**
+   * Build element payload with data for platform
+   * @param {HTMLElement} el - Element to serialize
+   * @param {boolean} includeStyles - Whether to include computed styles
+   * @returns {Object} Element payload with location, properties, and optional styles
+   */
+  function buildElementPayload(el, includeStyles) {
     const rect = el.getBoundingClientRect();
-    const meta = getMetadata(el);
+    const meta = parseElementLocation(el);
     const editabilityCheck = checkEditability(el);
 
     // Get component name with same logic as checkEditability
     const tagName = el.tagName.toLowerCase();
     const sourceName = el.getAttribute("data-sg-name") || tagName;
-    const isLikelyVariable = sourceName && /^[A-Z][a-z]*$/.test(sourceName) && sourceName !== tagName;
+    const isLikelyVariable =
+      sourceName && /^[A-Z][a-z]*$/.test(sourceName) && sourceName !== tagName;
     const componentName = isLikelyVariable ? tagName : sourceName;
 
     const payload = {
@@ -360,8 +464,9 @@
         right: rect.right,
         bottom: rect.bottom,
       },
-      // Editability metadata (simple, focused check)
-      isEditable: editabilityCheck.isEditable,
+      // Editability metadata (clear distinction between text and style editing)
+      isTextEditable: editabilityCheck.isTextEditable,
+      canEditStyles: editabilityCheck.canEditStyles,
     };
 
     // Only include styles for click (selection), not hover
@@ -395,20 +500,18 @@
 
     // Check if element is editable BEFORE showing hover
     const editCheck = checkEditability(el);
-    if (!editCheck.isEditable) {
-      // Clear any previous hover
+    if (!editCheck.isTextEditable && !editCheck.canEditStyles) {
+      // Clear any previous hover and don't hover non-editable elements
       if (hoveredElement && hoveredElement !== selectedElement) {
-        hoveredElement.removeAttribute("data-sg-hovered");
-        hoveredElement.removeAttribute("data-sg-full-width");
+        clearElementHighlight(hoveredElement, "hover");
         hoveredElement = null;
       }
-      return; // Don't hover non-editable elements
+      return;
     }
 
     // Clear previous hover
     if (hoveredElement && hoveredElement !== selectedElement) {
-      hoveredElement.removeAttribute("data-sg-hovered");
-      hoveredElement.removeAttribute("data-sg-full-width");
+      clearElementHighlight(hoveredElement, "hover");
     }
 
     hoveredElement = el;
@@ -418,12 +521,7 @@
 
     // Apply hover highlight
     el.setAttribute("data-sg-hovered", "true");
-
-    // Detect full-width layout
-    const rect = el.getBoundingClientRect();
-    if (Math.abs(rect.width - window.innerWidth) < 5) {
-      el.setAttribute("data-sg-full-width", "true");
-    }
+    applyFullWidthAttribute(el);
   }
 
   // Event: Click (BEST UX - instant editing for text, selection for others)
@@ -437,60 +535,36 @@
 
     // Clear previous selection
     if (selectedElement) {
-      selectedElement.removeAttribute("data-sg-selected");
-      selectedElement.removeAttribute("data-sg-full-width");
+      clearElementHighlight(selectedElement, "select");
     }
 
     // Clear hover state
     if (hoveredElement) {
-      hoveredElement.removeAttribute("data-sg-hovered");
-      hoveredElement.removeAttribute("data-sg-full-width");
+      clearElementHighlight(hoveredElement, "hover");
     }
 
     if (el) {
       // Check editability before selecting
       const editCheck = checkEditability(el);
 
-      if (!editCheck.isEditable) {
-        return;
+      if (!editCheck.isTextEditable && !editCheck.canEditStyles) {
+        return; // Can't edit text or styles
       }
 
-      // Check if it's a text element
-      const tagName = el.tagName.toLowerCase();
-      const textElements = [
-        "p",
-        "span",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "button",
-        "a",
-        "label",
-        "li",
-        "td",
-        "th",
-        "dt",
-        "dd",
-      ];
-      const isTextElement = textElements.includes(tagName);
+      // Check if it's a text element with direct text content
+      // Reuse editCheck.isTextEditable to avoid redundant checks
+      const isTextElement =
+        editCheck.isTextEditable && hasDirectTextContent(el);
 
       selectedElement = el;
       hoveredElement = null;
 
       // Always show selection highlight
       el.setAttribute("data-sg-selected", "true");
-
-      // Detect full-width layout
-      const rect = el.getBoundingClientRect();
-      if (Math.abs(rect.width - window.innerWidth) < 5) {
-        el.setAttribute("data-sg-full-width", "true");
-      }
+      applyFullWidthAttribute(el);
 
       // Send click event first
-      sendMessage(MESSAGE_TYPES.ELEMENT_CLICKED, buildPayload(el, true));
+      sendMessage(MESSAGE_TYPES.ELEMENT_CLICKED, buildElementPayload(el, true));
 
       if (isTextElement) {
         // Text element: Start inline editing immediately (BEST UX!)
@@ -517,15 +591,13 @@
 
       // Priority 2: Clear selection
       if (selectedElement) {
-        selectedElement.removeAttribute("data-sg-selected");
-        selectedElement.removeAttribute("data-sg-full-width");
+        clearElementHighlight(selectedElement, "select");
         selectedElement = null;
       }
 
       // Priority 3: Clear hover
       if (hoveredElement) {
-        hoveredElement.removeAttribute("data-sg-hovered");
-        hoveredElement.removeAttribute("data-sg-full-width");
+        clearElementHighlight(hoveredElement, "hover");
         hoveredElement = null;
       }
 
@@ -539,8 +611,7 @@
 
     // Clear hover during scroll (transient UI)
     if (hoveredElement && hoveredElement !== selectedElement) {
-      hoveredElement.removeAttribute("data-sg-hovered");
-      hoveredElement.removeAttribute("data-sg-full-width");
+      clearElementHighlight(hoveredElement, "hover");
       hoveredElement = null;
     }
   }
@@ -651,12 +722,10 @@
 
     // Clear all highlights
     if (hoveredElement) {
-      hoveredElement.removeAttribute("data-sg-hovered");
-      hoveredElement.removeAttribute("data-sg-full-width");
+      clearElementHighlight(hoveredElement, "hover");
     }
     if (selectedElement) {
-      selectedElement.removeAttribute("data-sg-selected");
-      selectedElement.removeAttribute("data-sg-full-width");
+      clearElementHighlight(selectedElement, "select");
     }
 
     hoveredElement = null;
@@ -670,6 +739,81 @@
 
     sendMessage(MESSAGE_TYPES.EDIT_MODE_DISABLED, { enabled: false });
   }
+
+  // Message handlers - extracted for clarity and maintainability
+  const messageHandlers = {
+    [MESSAGE_TYPES.ENABLE_EDIT_MODE]: () => {
+      enable();
+    },
+
+    [MESSAGE_TYPES.DISABLE_EDIT_MODE]: () => {
+      disable();
+    },
+
+    [MESSAGE_TYPES.UPDATE_TEXT_CONTENT]: (payload) => {
+      // Real-time text content updates
+      if (!selectedElement) {
+        console.warn("[Visual Editor] No element selected for text update");
+        return;
+      }
+
+      if (payload?.text !== undefined) {
+        selectedElement.textContent = payload.text;
+      }
+    },
+
+    [MESSAGE_TYPES.UPDATE_STYLES]: (payload) => {
+      // Real-time style updates
+      if (!selectedElement) {
+        console.warn("[Visual Editor] No element selected for style update");
+        return;
+      }
+
+      if (!payload || typeof payload !== "object") {
+        console.error("[Visual Editor] Invalid styles payload:", payload);
+        return;
+      }
+
+      if (payload.fontSize) {
+        selectedElement.style.fontSize = payload.fontSize;
+      }
+      if (payload.color) {
+        selectedElement.style.color = payload.color;
+      }
+      if (payload.backgroundColor) {
+        selectedElement.style.backgroundColor = payload.backgroundColor;
+      }
+    },
+
+    [MESSAGE_TYPES.DELETE_ELEMENT]: () => {
+      // Delete the selected element from DOM
+      if (selectedElement && selectedElement.parentNode) {
+        console.log("[Visual Editor] Deleting selected element from DOM");
+        selectedElement.parentNode.removeChild(selectedElement);
+        selectedElement = null;
+        hoveredElement = null;
+      }
+    },
+
+    [MESSAGE_TYPES.CLEAR_SELECTION]: () => {
+      // Stop any inline editing
+      stopInlineEditing(false);
+
+      // Clear selection highlight
+      if (selectedElement) {
+        clearElementHighlight(selectedElement, "select");
+        selectedElement = null;
+      }
+
+      // Clear hover highlight
+      if (hoveredElement) {
+        clearElementHighlight(hoveredElement, "hover");
+        hoveredElement = null;
+      }
+
+      sendMessage(MESSAGE_TYPES.SELECTION_CLEARED, {});
+    },
+  };
 
   // Listen for messages from platform
   window.addEventListener("message", (e) => {
@@ -685,46 +829,12 @@
 
     const { type, payload } = e.data;
 
-    switch (type) {
-      case MESSAGE_TYPES.ENABLE_EDIT_MODE:
-        enable();
-        break;
-      case MESSAGE_TYPES.DISABLE_EDIT_MODE:
-        disable();
-        break;
-      case MESSAGE_TYPES.UPDATE_COMPONENT:
-        // Real-time updates: update selected element text
-        if (selectedElement && payload?.newProps?.children !== undefined) {
-          selectedElement.textContent = payload.newProps.children;
-        }
-        break;
-      case MESSAGE_TYPES.DELETE_ELEMENT:
-        // Delete the selected element from DOM
-        if (selectedElement && selectedElement.parentNode) {
-          console.log('[Visual Editor] Deleting selected element from DOM');
-          selectedElement.parentNode.removeChild(selectedElement);
-          selectedElement = null;
-          hoveredElement = null;
-        }
-        break;
-      case MESSAGE_TYPES.CLEAR_SELECTION:
-        // Stop any inline editing
-        stopInlineEditing(false);
-
-        // Clear selection highlight
-        if (selectedElement) {
-          selectedElement.removeAttribute("data-sg-selected");
-          selectedElement.removeAttribute("data-sg-full-width");
-          selectedElement = null;
-        }
-        // Clear hover highlight
-        if (hoveredElement) {
-          hoveredElement.removeAttribute("data-sg-hovered");
-          hoveredElement.removeAttribute("data-sg-full-width");
-          hoveredElement = null;
-        }
-        sendMessage(MESSAGE_TYPES.SELECTION_CLEARED, {});
-        break;
+    // Execute handler if exists
+    const handler = messageHandlers[type];
+    if (handler) {
+      handler(payload);
+    } else {
+      console.warn("[Visual Editor] Unknown message type:", type);
     }
   });
 
