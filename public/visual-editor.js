@@ -41,26 +41,20 @@
     styleElement = document.createElement("style");
     styleElement.id = "sg-visual-editor-styles";
     styleElement.textContent = `
-      /* Hover state - Blue dashed outline with background (only for unselected elements) */
+      /* Hover state - Blue dashed outline only (works for all elements including buttons) */
       [data-sg-hovered]:not([data-sg-selected]) {
         outline: 2px dashed rgba(93,208,220) !important;
         outline-offset: 2px !important;
-        background-color: rgba(93,208,220, 0.05) !important;
         cursor: pointer !important;
         transition: outline 0.15s ease !important;
       }
 
-      /* Selected state - Same dashed outline, NO background (clean) */
+      /* Selected state - Same dashed outline, clean and minimal */
       [data-sg-selected] {
         outline: 2px dashed rgba(93,208,220) !important;
         outline-offset: 2px !important;
         cursor: pointer !important;
         transition: outline 0.15s ease !important;
-      }
-
-      /* Hover on selected element - add background back */
-      [data-sg-selected][data-sg-hovered] {
-        background-color: rgba(93,208,220, 0.05) !important;
       }
 
       /* Full-width elements - Inset outline */
@@ -69,13 +63,12 @@
         outline-offset: -2px !important;
       }
 
-      /* Inline editing state - text cursor + no native outline */
+      /* Inline editing state - text cursor + box shadow (no background to avoid conflicts) */
       [data-sg-editing] {
         cursor: text !important;
         outline: none !important;
-        /* Keep our custom visual indicator (overrides selection outline) */
+        /* Solid box-shadow indicates editing mode */
         box-shadow: 0 0 0 2px rgba(93,208,220) !important;
-        background-color: rgba(93,208,220, 0.05) !important;
       }
 
       /* Editing state takes visual precedence over selection */
@@ -213,11 +206,57 @@
 
   // Check if element should be editable
   // Returns: { isEditable: boolean, reason: string }
-  // Note: We only tag specific safe elements in the loader, so most edge cases
-  // are already filtered out. This checks runtime conditions only.
+  // Note: Lovable-style approach - we tag EVERYTHING, so we filter at runtime
   function checkEditability(el) {
     const tagName = el.tagName.toLowerCase();
+    const sourceName = el.getAttribute("data-sg-name") || tagName;
+
+    // Prefer runtime element name over variable names like "Comp"
+    // If data-sg-name looks like a variable (PascalCase, 1 word), and it's a common HTML element,
+    // trust the runtime tagName instead
+    const isLikelyVariable = sourceName && /^[A-Z][a-z]*$/.test(sourceName) && sourceName !== tagName;
+    const componentName = isLikelyVariable ? tagName : sourceName;
+
     const computedStyle = window.getComputedStyle(el);
+
+    // Filter out structural/container elements that shouldn't be directly editable
+    // Note: li, td, th, dt, dd are EDITABLE (removed from this list)
+    const nonEditableElements = new Set([
+      "div",
+      "section",
+      "article",
+      "header",
+      "footer",
+      "nav",
+      "aside",
+      "main",
+      "ul",
+      "ol",
+      "table",
+      "thead",
+      "tbody",
+      "tr",
+      "form",
+      "fieldset",
+      "legend",
+      "iframe",
+      "canvas",
+      "svg",
+      "path",
+      "g",
+      "circle",
+      "rect",
+      "line",
+      "polyline",
+      "polygon"
+    ]);
+
+    // Check if it's a structural element (unless it's a component wrapper)
+    if (nonEditableElements.has(tagName) && tagName === componentName.toLowerCase()) {
+      return {
+        isEditable: false,
+      };
+    }
 
     // Check for preserved whitespace (CSS can be dynamic)
     const whiteSpace = computedStyle.whiteSpace;
@@ -231,15 +270,15 @@
       };
     }
 
-    // Check for <code> nested inside tagged element (e.g., <p><code>x</code></p>)
-    if (tagName === "code" || el.querySelector("code")) {
+    // Check for <code> elements (code blocks shouldn't be edited visually)
+    if (tagName === "code" || tagName === "pre") {
       return {
         isEditable: false,
       };
     }
 
-    // All tagged elements are editable by default
-    // (loader already filtered to safe list: p, span, h1-h6, button, a, label)
+    // All other tagged elements are potentially editable
+    // This includes: text elements (p, h1-h6, span), buttons, links, labels, and React components
     return {
       isEditable: true,
     };
@@ -286,10 +325,17 @@
     const meta = getMetadata(el);
     const editabilityCheck = checkEditability(el);
 
+    // Get component name with same logic as checkEditability
+    const tagName = el.tagName.toLowerCase();
+    const sourceName = el.getAttribute("data-sg-name") || tagName;
+    const isLikelyVariable = sourceName && /^[A-Z][a-z]*$/.test(sourceName) && sourceName !== tagName;
+    const componentName = isLikelyVariable ? tagName : sourceName;
+
     const payload = {
       componentPath: meta?.filePath || "",
       line: meta?.line || 0,
       column: meta?.column || 0,
+      componentName, // Runtime component name (prefers actual element over variables like "Comp")
       element: {
         tagName: el.tagName.toLowerCase(),
         className: el.className || "", // Read from DOM
@@ -346,6 +392,18 @@
 
     const el = findTrackedElement(e.target);
     if (!el || el === hoveredElement || el === selectedElement) return;
+
+    // Check if element is editable BEFORE showing hover
+    const editCheck = checkEditability(el);
+    if (!editCheck.isEditable) {
+      // Clear any previous hover
+      if (hoveredElement && hoveredElement !== selectedElement) {
+        hoveredElement.removeAttribute("data-sg-hovered");
+        hoveredElement.removeAttribute("data-sg-full-width");
+        hoveredElement = null;
+      }
+      return; // Don't hover non-editable elements
+    }
 
     // Clear previous hover
     if (hoveredElement && hoveredElement !== selectedElement) {
@@ -411,6 +469,11 @@
         "button",
         "a",
         "label",
+        "li",
+        "td",
+        "th",
+        "dt",
+        "dd",
       ];
       const isTextElement = textElements.includes(tagName);
 
@@ -484,11 +547,25 @@
 
   // Block interactions during edit mode
   function blockInteraction(e) {
-    // Allow our own elements
+    // Allow our own editing elements
     if (e.target.hasAttribute && e.target.hasAttribute("data-sg-editing")) {
       return; // Allow editing
     }
 
+    // Check if this is a tracked element (walk up DOM tree like onClick does)
+    const trackedElement = findTrackedElement(e.target);
+    if (trackedElement) {
+      // This is our tracked element - don't block it!
+      // But still prevent default behavior for links/buttons to avoid navigation/submission
+      const tagName = trackedElement.tagName.toLowerCase();
+      if (tagName === "a" || tagName === "button") {
+        e.preventDefault(); // Prevent navigation/submission
+        // Don't stop propagation - let onClick handle it
+      }
+      return;
+    }
+
+    // Not our element - block everything
     const tagName = e.target.tagName?.toLowerCase();
 
     // Block form submissions
@@ -505,12 +582,8 @@
       return false;
     }
 
-    // Block button clicks (unless it's our element)
-    if (
-      tagName === "button" &&
-      e.type === "click" &&
-      !e.target.hasAttribute("data-sg-el")
-    ) {
+    // Block button clicks
+    if (tagName === "button" && e.type === "click") {
       e.preventDefault();
       e.stopPropagation();
       return false;

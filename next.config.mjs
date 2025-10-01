@@ -7,11 +7,11 @@ const nextConfig = {
     turbo: {
       rules: {
         '*.tsx': {
-          loaders: [path.resolve('./loaders/visual-editor-loader.js')],
+          loaders: [path.resolve('./loaders/visual-editor-loader.mjs')],
           as: '*.tsx',
         },
         '*.jsx': {
-          loaders: [path.resolve('./loaders/visual-editor-loader.js')],
+          loaders: [path.resolve('./loaders/visual-editor-loader.mjs')],
           as: '*.jsx',
         },
       },
