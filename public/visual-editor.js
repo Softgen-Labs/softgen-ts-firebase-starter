@@ -7,7 +7,6 @@
   // Message type constants (prevent typos and improve maintainability)
   const MESSAGE_TYPES = {
     // Messages from iframe to platform
-    ELEMENT_HOVERED: "ELEMENT_HOVERED",
     ELEMENT_CLICKED: "ELEMENT_CLICKED",
     EDIT_MODE_READY: "EDIT_MODE_READY",
     EDIT_MODE_ENABLED: "EDIT_MODE_ENABLED",
