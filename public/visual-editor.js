@@ -24,6 +24,7 @@
     DISABLE_EDIT_MODE: "DISABLE_EDIT_MODE",
     UPDATE_TEXT_CONTENT: "UPDATE_TEXT_CONTENT",
     UPDATE_STYLES: "UPDATE_STYLES",
+    UPDATE_CLASSES: "UPDATE_CLASSES",
     DELETE_ELEMENT: "DELETE_ELEMENT",
     CLEAR_SELECTION: "CLEAR_SELECTION",
   };
@@ -428,18 +429,14 @@
     const meta = parseElementLocation(el);
     const editabilityCheck = checkEditability(el);
 
-    // Get component name with same logic as checkEditability
     const tagName = el.tagName.toLowerCase();
-    const sourceName = el.getAttribute("data-sg-name") || tagName;
-    const isLikelyVariable =
-      sourceName && /^[A-Z][a-z]*$/.test(sourceName) && sourceName !== tagName;
-    const componentName = isLikelyVariable ? tagName : sourceName;
+    const componentName = el.getAttribute("data-sg-name") || tagName;
 
     const payload = {
       componentPath: meta?.filePath || "",
       line: meta?.line || 0,
       column: meta?.column || 0,
-      componentName, // Runtime component name (prefers actual element over variables like "Comp")
+      componentName,
       element: {
         tagName: el.tagName.toLowerCase(),
         className: el.className || "", // Read from DOM
@@ -769,7 +766,7 @@
     },
 
     [MESSAGE_TYPES.UPDATE_STYLES]: (payload) => {
-      // Real-time style updates
+      // Real-time style updates (for native HTML elements only)
       if (!selectedElement) {
         console.warn("[Visual Editor] No element selected for style update");
         return;
@@ -818,10 +815,42 @@
       }
     },
 
+    [MESSAGE_TYPES.UPDATE_CLASSES]: (payload) => {
+      if (!selectedElement) {
+        console.warn("[Visual Editor] No element selected for class update");
+        return;
+      }
+
+      if (!payload || typeof payload !== "object") {
+        console.error("[Visual Editor] Invalid classes payload:", payload);
+        return;
+      }
+
+      // Remove specified classes
+      if (payload.remove && Array.isArray(payload.remove)) {
+        payload.remove.forEach((cls) => {
+          if (cls && typeof cls === "string") {
+            selectedElement.classList.remove(cls);
+          }
+        });
+      }
+
+      // Add new classes
+      if (payload.add && Array.isArray(payload.add)) {
+        payload.add.forEach((cls) => {
+          if (cls && typeof cls === "string") {
+            selectedElement.classList.add(cls);
+          }
+        });
+      }
+
+      console.debug("[Visual Editor] Updated className:", selectedElement.className);
+    },
+
     [MESSAGE_TYPES.DELETE_ELEMENT]: () => {
       // Delete the selected element from DOM
       if (selectedElement && selectedElement.parentNode) {
-        console.log("[Visual Editor] Deleting selected element from DOM");
+        console.debug("[Visual Editor] Deleting selected element from DOM");
         selectedElement.parentNode.removeChild(selectedElement);
         selectedElement = null;
         hoveredElement = null;
