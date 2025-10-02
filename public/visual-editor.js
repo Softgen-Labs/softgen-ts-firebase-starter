@@ -483,8 +483,14 @@
         paddingRight: style.paddingRight,
         fontSize: style.fontSize,
         fontWeight: style.fontWeight,
+        fontStyle: style.fontStyle,
+        textDecoration: style.textDecoration,
+        lineHeight: style.lineHeight,
         color: style.color,
         backgroundColor: style.backgroundColor,
+        textAlign: style.textAlign,
+        borderRadius: style.borderRadius,
+        boxShadow: style.boxShadow,
       };
     }
 
@@ -777,11 +783,38 @@
       if (payload.fontSize) {
         selectedElement.style.fontSize = payload.fontSize;
       }
+      if (payload.fontWeight) {
+        selectedElement.style.fontWeight = payload.fontWeight;
+      }
+      if (payload.fontStyle) {
+        selectedElement.style.fontStyle = payload.fontStyle;
+      }
+      if (payload.textDecoration) {
+        selectedElement.style.textDecoration = payload.textDecoration;
+      }
+      if (payload.lineHeight) {
+        selectedElement.style.lineHeight = payload.lineHeight;
+      }
       if (payload.color) {
         selectedElement.style.color = payload.color;
       }
       if (payload.backgroundColor) {
         selectedElement.style.backgroundColor = payload.backgroundColor;
+      }
+      if (payload.textAlign) {
+        selectedElement.style.textAlign = payload.textAlign;
+      }
+      if (payload.padding) {
+        selectedElement.style.padding = payload.padding;
+      }
+      if (payload.margin) {
+        selectedElement.style.margin = payload.margin;
+      }
+      if (payload.borderRadius) {
+        selectedElement.style.borderRadius = payload.borderRadius;
+      }
+      if (payload.boxShadow) {
+        selectedElement.style.boxShadow = payload.boxShadow;
       }
     },
 
