@@ -20,12 +20,12 @@ const nextConfig = {
   images: {
     remotePatterns: [
       {
-        protocol: 'https',
-        hostname: '**',
+        protocol: "https",
+        hostname: "**",
       },
     ],
   },
-  allowedDevOrigins: ['*.daytona.work', '*.localhost', '*.softgen.dev'],
+  allowedDevOrigins: ["*.daytona.work", "*.softgen.dev"],
 };
 
 export default nextConfig;
