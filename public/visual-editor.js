@@ -82,6 +82,10 @@
     "cite",
   ]);
 
+  // WeakMap cache for element metadata (auto-GC when element removed)
+  // Caches parsed location and editability to avoid repeated calculations
+  const elementMetadataCache = new WeakMap();
+
   let isEditModeEnabled = false;
   let hoveredElement = null;
   let selectedElement = null;
@@ -250,34 +254,53 @@
   }
 
   /**
-   * Parse element location from data-sg-el attribute
+   * Parse element location from data-sg-el attribute (with caching)
    * Format: "file:line:col" → {id, filePath, line, column}
    * @param {HTMLElement} el - Element with data-sg-el attribute
    * @returns {{id: string, filePath: string, line: number, column: number} | null}
    */
   function parseElementLocation(el) {
+    // Check cache first (O(1) lookup)
+    const cached = elementMetadataCache.get(el);
+    if (cached && cached.location) {
+      return cached.location;
+    }
+
     const id = el.getAttribute("data-sg-el");
     if (!id) return null;
 
     const match = id.match(/^(.+):(\d+):(\d+)$/);
     if (!match) return null;
 
-    return {
+    const location = {
       id,
       filePath: match[1],
       line: parseInt(match[2], 10),
       column: parseInt(match[3], 10),
     };
+
+    // Cache for future lookups
+    const metadata = cached || {};
+    metadata.location = location;
+    elementMetadataCache.set(el, metadata);
+
+    return location;
   }
 
   /**
-   * Check if element is editable (text and/or styles)
+   * Check if element is editable (text and/or styles) - with caching
    * PHILOSOPHY: Restrictive allowlist - explicitly define what's safe to edit.
    * Better to start restrictive and allow more later than break layouts.
    * @param {HTMLElement} el - Element to check
    * @returns {{isTextEditable: boolean, canEditStyles: boolean}}
    */
   function checkEditability(el) {
+    // Check cache first (O(1) lookup, avoids repeated style calculations)
+    const cached = elementMetadataCache.get(el);
+    if (cached && cached.editability) {
+      return cached.editability;
+    }
+
     const tagName = el.tagName.toLowerCase();
     const computedStyle = window.getComputedStyle(el);
 
@@ -288,35 +311,50 @@
       whiteSpace === "pre-line" ||
       whiteSpace === "pre-wrap"
     ) {
-      return {
+      const editability = {
         isTextEditable: false,
         canEditStyles: false, // Don't mess with code formatting
       };
+      // Cache result
+      const metadata = cached || {};
+      metadata.editability = editability;
+      elementMetadataCache.set(el, metadata);
+      return editability;
     }
 
     // Check for <code>/<pre> elements (code blocks shouldn't be edited visually)
     if (tagName === "code" || tagName === "pre") {
-      return {
+      const editability = {
         isTextEditable: false,
         canEditStyles: false, // Don't mess with code formatting
       };
+      // Cache result
+      const metadata = cached || {};
+      metadata.editability = editability;
+      elementMetadataCache.set(el, metadata);
+      return editability;
     }
 
     // ✅ EXPLICIT ALLOWLIST - Only these elements support text editing
     // This is the single source of truth (TEXT_ELEMENT_TAGS)
-    if (TEXT_ELEMENT_TAGS.has(tagName)) {
-      return {
-        isTextEditable: true,
-        canEditStyles: true,
-      };
-    }
+    const editability = TEXT_ELEMENT_TAGS.has(tagName)
+      ? {
+          isTextEditable: true,
+          canEditStyles: true,
+        }
+      : {
+          // Everything else: styles only (safe default for containers, custom components, etc.)
+          // This includes: div, section, article, custom React components, etc.
+          isTextEditable: false,
+          canEditStyles: true, // Can still edit margins, padding, colors
+        };
 
-    // Everything else: styles only (safe default for containers, custom components, etc.)
-    // This includes: div, section, article, custom React components, etc.
-    return {
-      isTextEditable: false,
-      canEditStyles: true, // Can still edit margins, padding, colors
-    };
+    // Cache result
+    const metadata = cached || {};
+    metadata.editability = editability;
+    elementMetadataCache.set(el, metadata);
+
+    return editability;
   }
 
   // Check if element has direct text content (not just nested in children)
