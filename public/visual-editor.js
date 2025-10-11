@@ -581,9 +581,24 @@
 
   function init() {
     const ready = () => {
+      // Check if there are any tagged elements on the page
+      const taggedElements = document.querySelectorAll("[data-sg-el]");
+
+      if (taggedElements.length === 0) {
+        console.debug(
+          "[Visual Editor] No tagged elements found on page. Editor will not initialize."
+        );
+        return;
+      }
+
+      console.debug(
+        `[Visual Editor] Found ${taggedElements.length} tagged element(s). Ready to initialize.`
+      );
+
       sendMessage(MESSAGE_TYPES.READY, {
         url: window.location.href,
         timestamp: new Date().toISOString(),
+        taggedElementsCount: taggedElements.length,
       });
     };
 
