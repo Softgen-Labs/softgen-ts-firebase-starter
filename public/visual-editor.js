@@ -46,7 +46,6 @@
   let selectedElement = null;
   let editingElement = null;
   let originalText = "";
-  let originalInlineStyles = "";
   let styleElement = null;
 
   // Inject visual editor styles
@@ -318,8 +317,6 @@
 
     if (selectedElement) {
       clearElementHighlight(selectedElement, "select");
-      // Restore original inline styles (remove any applied by platform)
-      selectedElement.setAttribute("style", originalInlineStyles);
     }
 
     if (el) {
@@ -333,7 +330,6 @@
         editCheck.isTextEditable && hasDirectTextContent(el);
 
       selectedElement = el;
-      originalInlineStyles = el.getAttribute("style") || "";
 
       el.setAttribute("data-sg-selected", "true");
 
@@ -439,12 +435,9 @@
 
     if (selectedElement) {
       clearElementHighlight(selectedElement, "select");
-      // Restore original inline styles (clean up any applied changes)
-      selectedElement.setAttribute("style", originalInlineStyles);
     }
 
     selectedElement = null;
-    originalInlineStyles = "";
 
     removeStyles();
 
@@ -564,7 +557,6 @@
 
       if (selectedElement) {
         clearElementHighlight(selectedElement, "select");
-        selectedElement.setAttribute("style", originalInlineStyles);
         selectedElement = null;
       }
 
