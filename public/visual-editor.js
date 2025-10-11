@@ -1,26 +1,18 @@
-// Visual Editor Iframe Script - Minimal Bridge
 (function () {
   "use strict";
 
-  const ALLOWED_ORIGINS = ["*"];
-
-  // Message type constants (prevent typos and improve maintainability)
   const MESSAGE_TYPES = {
     // Messages from iframe to platform
+    READY: "READY",
+    EDIT_MODE_STATE: "EDIT_MODE_STATE",
     ELEMENT_CLICKED: "ELEMENT_CLICKED",
-    EDIT_MODE_READY: "EDIT_MODE_READY",
-    EDIT_MODE_ENABLED: "EDIT_MODE_ENABLED",
-    EDIT_MODE_DISABLED: "EDIT_MODE_DISABLED",
-    INLINE_EDIT_STARTED: "INLINE_EDIT_STARTED",
-    INLINE_EDIT_SAVED: "INLINE_EDIT_SAVED",
-    INLINE_EDIT_CANCELLED: "INLINE_EDIT_CANCELLED",
+    INLINE_EDIT_STATE: "INLINE_EDIT_STATE",
     ELEMENT_TEXT_UPDATED: "ELEMENT_TEXT_UPDATED",
     OPEN_EDITOR_POPOVER: "OPEN_EDITOR_POPOVER",
     SELECTION_CLEARED: "SELECTION_CLEARED",
 
     // Messages from platform to iframe
-    ENABLE_EDIT_MODE: "ENABLE_EDIT_MODE",
-    DISABLE_EDIT_MODE: "DISABLE_EDIT_MODE",
+    SET_STATE: "SET_STATE",
     UPDATE_TEXT_CONTENT: "UPDATE_TEXT_CONTENT",
     UPDATE_STYLES: "UPDATE_STYLES",
     UPDATE_CLASSES: "UPDATE_CLASSES",
@@ -28,84 +20,56 @@
     CLEAR_SELECTION: "CLEAR_SELECTION",
   };
 
-  // Configuration constants
-  const CONFIG = {
-    FULL_WIDTH_THRESHOLD_PX: 5,
-  };
+  // CSS properties supported by platform editor
+  const STYLE_PROPERTIES = [
+    // Typography
+    "fontSize",
+    "fontWeight",
+    "fontStyle",
+    "textDecoration",
+    "lineHeight",
+    "textAlign",
+    // Colors
+    "color",
+    "backgroundColor",
+    // Spacing
+    "margin",
+    "padding",
+    // Effects
+    "borderRadius",
+    "boxShadow",
+    "opacity",
+  ];
 
-  // Text elements that support inline editing (must have direct text content)
-  const TEXT_ELEMENT_TAGS = new Set([
-    // Headings
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    // Paragraphs and inline text
-    "p",
-    "span",
-    "strong",
-    "em",
-    "b",
-    "i",
-    "u",
-    "small",
-    "mark",
-    "del",
-    "ins",
-    "sub",
-    "sup",
-    // Interactive text elements
-    "button",
-    "a",
-    "label",
-    // List items (contain direct text)
-    "li",
-    "dt",
-    "dd",
-    // Table cells (contain direct text)
-    "td",
-    "th",
-    // Form text elements
-    "legend",
-    "figcaption",
-    "caption",
-    // Code elements
-    "code",
-    "kbd",
-    "samp",
-    "var",
-    // Quotes
-    "blockquote",
-    "q",
-    "cite",
-  ]);
+  // Simple text tag check - common inline/text elements
+  const TEXT_TAGS = /^(h[1-6]|p|span|button|a|label|li|strong|em|b|i|u)$/;
 
-  // WeakMap cache for element metadata (auto-GC when element removed)
-  // Caches parsed location and editability to avoid repeated calculations
-  const elementMetadataCache = new WeakMap();
-
-  let isEditModeEnabled = false;
-  let hoveredElement = null;
+  let editorState = "disabled"; // enabled | disabled | saving
   let selectedElement = null;
   let editingElement = null;
   let originalText = "";
+  let originalInlineStyles = ""; // Store original inline styles to restore on cancel
   let styleElement = null;
 
-  // Inject visual editor styles (CSS attribute selectors - clean and simple)
+  // Inject visual editor styles
   function injectStyles() {
     if (styleElement) return;
 
     styleElement = document.createElement("style");
     styleElement.id = "sg-visual-editor-styles";
     styleElement.textContent = `
-      /* Hover state - Blue dashed outline only (works for all elements including buttons) */
-      [data-sg-hovered]:not([data-sg-selected]) {
+      /* Hover state - Pure CSS :hover (no JavaScript needed!) */
+      /* Only show hover when NOT in saving state and NOT already selected */
+      body:not([data-sg-saving]) [data-sg-el]:hover:not([data-sg-selected]) {
         outline: 2px dashed rgba(93,208,220) !important;
         outline-offset: 2px !important;
         cursor: pointer !important;
         transition: outline 0.15s ease !important;
+      }
+
+      /* Remove hover from parent when child is hovered (only highlight innermost element) */
+      body:not([data-sg-saving]) [data-sg-el]:has([data-sg-el]:hover):not([data-sg-selected]) {
+        outline: none !important;
       }
 
       /* Selected state - Same dashed outline, clean and minimal */
@@ -114,12 +78,6 @@
         outline-offset: 2px !important;
         cursor: pointer !important;
         transition: outline 0.15s ease !important;
-      }
-
-      /* Full-width elements - Inset outline */
-      [data-sg-hovered][data-sg-full-width]:not([data-sg-selected]),
-      [data-sg-selected][data-sg-full-width] {
-        outline-offset: -2px !important;
       }
 
       /* Inline editing state - text cursor + box shadow (no background to avoid conflicts) */
@@ -152,7 +110,6 @@
     }
   }
 
-  // Start inline text editing
   function startInlineEditing(el) {
     if (!el || editingElement === el) return;
 
@@ -168,7 +125,6 @@
     el.focus();
 
     const handleBlur = () => {
-      // Save on blur (user clicked away)
       stopInlineEditing(true);
     };
 
@@ -186,10 +142,10 @@
     // Store handlers for cleanup
     el._sgEditorHandlers = { handleBlur, handleInput };
 
-    sendMessage(
-      MESSAGE_TYPES.INLINE_EDIT_STARTED,
-      buildElementPayload(el, false)
-    );
+    sendMessage(MESSAGE_TYPES.INLINE_EDIT_STATE, {
+      state: "started",
+      ...buildElementPayload(el, false),
+    });
 
     // Open editor popover when editing starts
     sendMessage(
@@ -204,6 +160,7 @@
 
     const el = editingElement;
     const newText = el.textContent || "";
+    const metadata = parseElementLocation(el); // Cache metadata lookup
 
     // Restore original if cancelled
     if (!save) {
@@ -221,21 +178,15 @@
       delete el._sgEditorHandlers;
     }
 
-    // Send save message if changed
-    if (save && newText !== originalText) {
-      sendMessage(MESSAGE_TYPES.INLINE_EDIT_SAVED, {
-        text: newText,
-        originalText: originalText,
-        metadata: parseElementLocation(el),
-        changed: true,
-      });
-    } else {
-      sendMessage(MESSAGE_TYPES.INLINE_EDIT_CANCELLED, {
-        text: originalText,
-        metadata: parseElementLocation(el),
-        changed: false,
-      });
-    }
+    // Send state message (saved or cancelled)
+    const changed = save && newText !== originalText;
+    sendMessage(MESSAGE_TYPES.INLINE_EDIT_STATE, {
+      state: changed ? "saved" : "cancelled",
+      text: changed ? newText : originalText,
+      originalText: originalText,
+      metadata: metadata,
+      changed: changed,
+    });
 
     editingElement = null;
     originalText = "";
@@ -253,114 +204,49 @@
     }
   }
 
-  /**
-   * Parse element location from data-sg-el attribute (with caching)
-   * Format: "file:line:col" → {id, filePath, line, column}
-   * @param {HTMLElement} el - Element with data-sg-el attribute
-   * @returns {{id: string, filePath: string, line: number, column: number} | null}
-   */
   function parseElementLocation(el) {
-    // Check cache first (O(1) lookup)
-    const cached = elementMetadataCache.get(el);
-    if (cached && cached.location) {
-      return cached.location;
-    }
-
     const id = el.getAttribute("data-sg-el");
     if (!id) return null;
 
     const match = id.match(/^(.+):(\d+):(\d+)$/);
     if (!match) return null;
 
-    const location = {
+    return {
       id,
       filePath: match[1],
       line: parseInt(match[2], 10),
       column: parseInt(match[3], 10),
     };
-
-    // Cache for future lookups
-    const metadata = cached || {};
-    metadata.location = location;
-    elementMetadataCache.set(el, metadata);
-
-    return location;
   }
 
-  /**
-   * Check if element is editable (text and/or styles) - with caching
-   * PHILOSOPHY: Restrictive allowlist - explicitly define what's safe to edit.
-   * Better to start restrictive and allow more later than break layouts.
-   * @param {HTMLElement} el - Element to check
-   * @returns {{isTextEditable: boolean, canEditStyles: boolean}}
-   */
   function checkEditability(el) {
-    // Check cache first (O(1) lookup, avoids repeated style calculations)
-    const cached = elementMetadataCache.get(el);
-    if (cached && cached.editability) {
-      return cached.editability;
+    const tagName = el.tagName.toLowerCase();
+
+    // Code/pre elements are non-editable
+    const isCodeOrPre = tagName === "code" || tagName === "pre";
+    if (isCodeOrPre) {
+      return { isTextEditable: false, canEditStyles: false };
     }
 
-    const tagName = el.tagName.toLowerCase();
+    // Check for pre-formatted whitespace
     const computedStyle = window.getComputedStyle(el);
-
-    // Check for preserved whitespace (CSS can be dynamic)
     const whiteSpace = computedStyle.whiteSpace;
     if (
       whiteSpace === "pre" ||
       whiteSpace === "pre-line" ||
       whiteSpace === "pre-wrap"
     ) {
-      const editability = {
-        isTextEditable: false,
-        canEditStyles: false, // Don't mess with code formatting
-      };
-      // Cache result
-      const metadata = cached || {};
-      metadata.editability = editability;
-      elementMetadataCache.set(el, metadata);
-      return editability;
+      return { isTextEditable: false, canEditStyles: false };
     }
 
-    // Check for <code>/<pre> elements (code blocks shouldn't be edited visually)
-    if (tagName === "code" || tagName === "pre") {
-      const editability = {
-        isTextEditable: false,
-        canEditStyles: false, // Don't mess with code formatting
-      };
-      // Cache result
-      const metadata = cached || {};
-      metadata.editability = editability;
-      elementMetadataCache.set(el, metadata);
-      return editability;
-    }
-
-    // ✅ EXPLICIT ALLOWLIST - Only these elements support text editing
-    // This is the single source of truth (TEXT_ELEMENT_TAGS)
-    const editability = TEXT_ELEMENT_TAGS.has(tagName)
-      ? {
-          isTextEditable: true,
-          canEditStyles: true,
-        }
-      : {
-          // Everything else: styles only (safe default for containers, custom components, etc.)
-          // This includes: div, section, article, custom React components, etc.
-          isTextEditable: false,
-          canEditStyles: true, // Can still edit margins, padding, colors
-        };
-
-    // Cache result
-    const metadata = cached || {};
-    metadata.editability = editability;
-    elementMetadataCache.set(el, metadata);
-
-    return editability;
+    // Text tags can edit text, all others can only edit styles
+    return {
+      isTextEditable: TEXT_TAGS.test(tagName),
+      canEditStyles: true,
+    };
   }
 
-  // Check if element has direct text content (not just nested in children)
-  // This helps identify if an element is truly a "text element" vs a container
   function hasDirectTextContent(el) {
-    // Check if element has any direct text nodes (not just whitespace)
     for (const node of el.childNodes) {
       if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
         return true;
@@ -369,18 +255,16 @@
     return false;
   }
 
-  // Get element text content intelligently
-  // Uses innerText for WYSIWYG (normalized), textContent for preserved formatting
   function getTextContent(el) {
     const tagName = el.tagName.toLowerCase();
-    const computedStyle = window.getComputedStyle(el);
 
-    // For pre-formatted elements, use textContent (preserves whitespace)
+    // For pre/code elements, preserve whitespace
     if (tagName === "pre" || tagName === "code") {
       return el.textContent || "";
     }
 
-    const whiteSpace = computedStyle.whiteSpace;
+    // Check for pre-formatted whitespace
+    const whiteSpace = window.getComputedStyle(el).whiteSpace;
     if (
       whiteSpace === "pre" ||
       whiteSpace === "pre-line" ||
@@ -389,63 +273,22 @@
       return el.textContent || "";
     }
 
-    // For normal elements, use innerText (normalized, WYSIWYG)
-    // This matches what the user sees in the browser
     return el.innerText?.trim() || "";
   }
 
-  /**
-   * Detect if element spans full viewport width
-   * @param {HTMLElement} el - Element to check
-   * @returns {boolean} True if element is full-width
-   */
-  function isFullWidth(el) {
-    const rect = el.getBoundingClientRect();
-    return (
-      Math.abs(rect.width - window.innerWidth) < CONFIG.FULL_WIDTH_THRESHOLD_PX
-    );
-  }
-
-  /**
-   * Apply full-width attribute if needed
-   * @param {HTMLElement} el - Element to check and update
-   */
-  function applyFullWidthAttribute(el) {
-    if (isFullWidth(el)) {
-      el.setAttribute("data-sg-full-width", "true");
-    }
-  }
-
-  /**
-   * Clear element visual state attributes
-   * @param {HTMLElement} el - Element to clear
-   * @param {string} type - Type of highlight to clear: 'hover', 'select', 'edit', or 'all'
-   */
   function clearElementHighlight(el, type = "all") {
     if (!el) return;
 
     const attributeMap = {
-      hover: ["data-sg-hovered", "data-sg-full-width"],
-      select: ["data-sg-selected", "data-sg-full-width"],
+      select: ["data-sg-selected"],
       edit: ["data-sg-editing", "contenteditable"],
-      all: [
-        "data-sg-hovered",
-        "data-sg-selected",
-        "data-sg-editing",
-        "data-sg-full-width",
-        "contenteditable",
-      ],
+      all: ["data-sg-selected", "data-sg-editing", "contenteditable"],
     };
 
     const attrs = attributeMap[type] || attributeMap.all;
     attrs.forEach((attr) => el.removeAttribute(attr));
   }
 
-  /**
-   * Find closest element with data-sg-el tracking attribute
-   * @param {HTMLElement} target - Starting element
-   * @returns {HTMLElement | null} Tracked element or null
-   */
   function findTrackedElement(target) {
     let el = target;
     while (el && el !== document.body) {
@@ -455,48 +298,19 @@
     return null;
   }
 
-  /**
-   * Build element payload with data for platform
-   * @param {HTMLElement} el - Element to serialize
-   * @param {boolean} includeStyles - Whether to include computed styles
-   * @returns {Object} Element payload with location, properties, and optional styles
-   */
   function buildElementPayload(el, includeStyles) {
-    const rect = el.getBoundingClientRect();
     const meta = parseElementLocation(el);
     const editabilityCheck = checkEditability(el);
-
-    const tagName = el.tagName.toLowerCase();
-    const componentName = el.getAttribute("data-sg-name") || tagName;
+    const tagName = el.tagName.toLowerCase(); // Cache tagName lookup
 
     const payload = {
       componentPath: meta?.filePath || "",
       line: meta?.line || 0,
       column: meta?.column || 0,
-      componentName,
+      componentName: el.getAttribute("data-sg-name") || tagName,
       element: {
-        tagName: el.tagName.toLowerCase(),
-        className: el.className || "", // Read from DOM
-        id: el.id || "",
+        tagName: tagName, // Reuse cached tagName
         textContent: getTextContent(el), // Smart text extraction
-        attributes: {
-          // Include key attributes for display/editing
-          href: el.getAttribute("href") || "",
-          src: el.getAttribute("src") || "",
-          alt: el.getAttribute("alt") || "",
-          title: el.getAttribute("title") || "",
-          placeholder: el.getAttribute("placeholder") || "",
-        },
-      },
-      rect: {
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-        top: rect.top,
-        left: rect.left,
-        right: rect.right,
-        bottom: rect.bottom,
       },
       // Editability metadata (clear distinction between text and style editing)
       isTextEditable: editabilityCheck.isTextEditable,
@@ -506,81 +320,29 @@
     // Only include styles for click (selection), not hover
     if (includeStyles) {
       const style = window.getComputedStyle(el);
-      payload.styles = {
-        marginTop: style.marginTop,
-        marginBottom: style.marginBottom,
-        marginLeft: style.marginLeft,
-        marginRight: style.marginRight,
-        paddingTop: style.paddingTop,
-        paddingBottom: style.paddingBottom,
-        paddingLeft: style.paddingLeft,
-        paddingRight: style.paddingRight,
-        fontSize: style.fontSize,
-        fontWeight: style.fontWeight,
-        fontStyle: style.fontStyle,
-        textDecoration: style.textDecoration,
-        lineHeight: style.lineHeight,
-        color: style.color,
-        backgroundColor: style.backgroundColor,
-        textAlign: style.textAlign,
-        borderRadius: style.borderRadius,
-        boxShadow: style.boxShadow,
-      };
+      payload.styles = {};
+      STYLE_PROPERTIES.forEach((prop) => {
+        payload.styles[prop] = style[prop];
+      });
     }
 
     return payload;
   }
 
-  // Event: Mouse over (simple hover for unselected elements)
-  function onMouseOver(e) {
-    if (!isEditModeEnabled) return;
-
-    const el = findTrackedElement(e.target);
-    if (!el || el === hoveredElement || el === selectedElement) return;
-
-    // Check if element is editable BEFORE showing hover
-    const editCheck = checkEditability(el);
-    if (!editCheck.isTextEditable && !editCheck.canEditStyles) {
-      // Clear any previous hover and don't hover non-editable elements
-      if (hoveredElement && hoveredElement !== selectedElement) {
-        clearElementHighlight(hoveredElement, "hover");
-        hoveredElement = null;
-      }
-      return;
-    }
-
-    // Clear previous hover
-    if (hoveredElement && hoveredElement !== selectedElement) {
-      clearElementHighlight(hoveredElement, "hover");
-    }
-
-    hoveredElement = el;
-
-    // Don't apply hover to selected element
-    if (el === selectedElement) return;
-
-    // Apply hover highlight
-    el.setAttribute("data-sg-hovered", "true");
-    applyFullWidthAttribute(el);
-  }
-
-  // Event: Click (BEST UX - instant editing for text, selection for others)
   function onClick(e) {
-    if (!isEditModeEnabled) return;
+    // Only allow clicks in edit modes (enabled or saving)
+    if (editorState === "disabled") return;
 
     e.preventDefault();
     e.stopPropagation();
 
     const el = findTrackedElement(e.target);
 
-    // Clear previous selection
+    // Clear previous selection and restore its original styles
     if (selectedElement) {
       clearElementHighlight(selectedElement, "select");
-    }
-
-    // Clear hover state
-    if (hoveredElement) {
-      clearElementHighlight(hoveredElement, "hover");
+      // Restore original inline styles (remove any applied by platform)
+      selectedElement.setAttribute("style", originalInlineStyles);
     }
 
     if (el) {
@@ -597,11 +359,11 @@
         editCheck.isTextEditable && hasDirectTextContent(el);
 
       selectedElement = el;
-      hoveredElement = null;
+      // Store original inline styles before any editing
+      originalInlineStyles = el.getAttribute("style") || "";
 
       // Always show selection highlight
       el.setAttribute("data-sg-selected", "true");
-      applyFullWidthAttribute(el);
 
       // Send click event first
       sendMessage(MESSAGE_TYPES.ELEMENT_CLICKED, buildElementPayload(el, true));
@@ -613,14 +375,13 @@
       }
     } else {
       selectedElement = null;
-      hoveredElement = null;
       sendMessage(MESSAGE_TYPES.ELEMENT_CLICKED, null);
     }
   }
 
-  // Event: ESC key to clear selection or cancel editing
   function onKeyDown(e) {
-    if (!isEditModeEnabled) return;
+    // Only allow ESC in edit modes (enabled or saving)
+    if (editorState === "disabled") return;
 
     if (e.key === "Escape") {
       // Priority 1: Stop inline editing if active (handled in startInlineEditing)
@@ -635,28 +396,10 @@
         selectedElement = null;
       }
 
-      // Priority 3: Clear hover
-      if (hoveredElement) {
-        clearElementHighlight(hoveredElement, "hover");
-        hoveredElement = null;
-      }
-
       sendMessage(MESSAGE_TYPES.SELECTION_CLEARED, {});
     }
   }
 
-  // Scroll handling - simplified (clear transient hover only)
-  function onScroll() {
-    if (!isEditModeEnabled) return;
-
-    // Clear hover during scroll (transient UI)
-    if (hoveredElement && hoveredElement !== selectedElement) {
-      clearElementHighlight(hoveredElement, "hover");
-      hoveredElement = null;
-    }
-  }
-
-  // Block interactions during edit mode
   function blockInteraction(e) {
     // Allow our own editing elements
     if (e.target.hasAttribute && e.target.hasAttribute("data-sg-editing")) {
@@ -679,22 +422,12 @@
     // Not our element - block everything
     const tagName = e.target.tagName?.toLowerCase();
 
-    // Block form submissions
-    if (e.type === "submit") {
-      e.preventDefault();
-      e.stopPropagation();
-      return false;
-    }
+    // Block interactive elements (links, buttons, forms)
+    const shouldBlock =
+      e.type === "submit" ||
+      (e.type === "click" && (tagName === "a" || tagName === "button"));
 
-    // Block link navigation
-    if (tagName === "a" && e.type === "click") {
-      e.preventDefault();
-      e.stopPropagation();
-      return false;
-    }
-
-    // Block button clicks
-    if (tagName === "button" && e.type === "click") {
+    if (shouldBlock) {
       e.preventDefault();
       e.stopPropagation();
       return false;
@@ -708,11 +441,9 @@
     document.addEventListener("submit", blockInteraction, true);
     document.addEventListener("click", blockInteraction, true);
 
-    // Visual editor interactions
-    document.addEventListener("mouseover", onMouseOver, true);
+    // Visual editor interactions (hover handled by pure CSS!)
     document.addEventListener("click", onClick, true);
     document.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("scroll", onScroll, { passive: true });
   }
 
   function unregisterEventHandlers() {
@@ -721,16 +452,15 @@
     document.removeEventListener("click", blockInteraction, true);
 
     // Remove visual editor interactions
-    document.removeEventListener("mouseover", onMouseOver, true);
     document.removeEventListener("click", onClick, true);
     document.removeEventListener("keydown", onKeyDown, true);
-    window.removeEventListener("scroll", onScroll);
   }
 
-  // Enable edit mode
+  // Enable edit mode (internal only - called by SET_STATE handler)
   function enable() {
-    if (isEditModeEnabled) return;
-    isEditModeEnabled = true;
+    if (editorState !== "disabled") return;
+    editorState = "enabled";
+    console.debug("[Visual Editor] State: disabled → enabled");
 
     // Inject CSS styles
     injectStyles();
@@ -738,20 +468,21 @@
     // Register all event handlers using registry pattern
     registerEventHandlers();
     document.body.style.cursor = "crosshair";
+    document.body.removeAttribute("data-sg-saving"); // Ensure clean state
 
     // Disable smooth scrolling
     const scrollStyle = document.createElement("style");
     scrollStyle.id = "sg-scroll-override";
     scrollStyle.textContent = "* { scroll-behavior: auto !important; }";
     document.head.appendChild(scrollStyle);
-
-    sendMessage(MESSAGE_TYPES.EDIT_MODE_ENABLED, { enabled: true });
   }
 
-  // Disable edit mode
+  // Disable edit mode (internal only - called by SET_STATE handler)
   function disable() {
-    if (!isEditModeEnabled) return;
-    isEditModeEnabled = false;
+    if (editorState === "disabled") return;
+    const previousState = editorState;
+    editorState = "disabled";
+    console.debug(`[Visual Editor] State: ${previousState} → disabled`);
 
     // Stop any inline editing
     stopInlineEditing(false);
@@ -759,35 +490,81 @@
     // Unregister all event handlers using registry pattern
     unregisterEventHandlers();
     document.body.style.cursor = "";
+    document.body.removeAttribute("data-sg-saving"); // Clean up saving state
 
-    // Clear all highlights
-    if (hoveredElement) {
-      clearElementHighlight(hoveredElement, "hover");
-    }
+    // Clear selection highlight and restore original styles
     if (selectedElement) {
       clearElementHighlight(selectedElement, "select");
+      // Restore original inline styles (clean up any applied changes)
+      selectedElement.setAttribute("style", originalInlineStyles);
     }
 
-    hoveredElement = null;
     selectedElement = null;
+    originalInlineStyles = "";
 
     // Remove CSS styles
     removeStyles();
 
     // Re-enable smooth scrolling
     document.getElementById("sg-scroll-override")?.remove();
-
-    sendMessage(MESSAGE_TYPES.EDIT_MODE_DISABLED, { enabled: false });
   }
 
   // Message handlers - extracted for clarity and maintainability
   const messageHandlers = {
-    [MESSAGE_TYPES.ENABLE_EDIT_MODE]: () => {
-      enable();
-    },
+    [MESSAGE_TYPES.SET_STATE]: (payload) => {
+      // Unified state transition handler
+      const newState = payload?.state;
 
-    [MESSAGE_TYPES.DISABLE_EDIT_MODE]: () => {
-      disable();
+      if (!["disabled", "enabled", "saving"].includes(newState)) {
+        console.error("[Visual Editor] Invalid state:", newState);
+        return;
+      }
+
+      const previousState = editorState;
+
+      // Ignore no-op transitions
+      if (previousState === newState) {
+        return;
+      }
+
+      console.debug(`[Visual Editor] State: ${previousState} → ${newState}`);
+
+      // Handle transitions FROM old state (cleanup)
+      if (previousState === "enabled" || previousState === "saving") {
+        // Leaving edit mode entirely
+        if (newState === "disabled") {
+          disable();
+          // Confirm state change to platform
+          sendMessage(MESSAGE_TYPES.EDIT_MODE_STATE, { state: "disabled" });
+          return; // disable() handles everything
+        }
+      }
+
+      // Handle transitions TO new state (setup)
+      if (newState === "enabled") {
+        if (previousState === "disabled") {
+          enable();
+          // Confirm state change to platform
+          sendMessage(MESSAGE_TYPES.EDIT_MODE_STATE, { state: "enabled" });
+        } else if (previousState === "saving") {
+          // Exit saving, stay in edit mode
+          editorState = "enabled";
+          document.body.removeAttribute("data-sg-saving");
+          // Confirm state change to platform
+          sendMessage(MESSAGE_TYPES.EDIT_MODE_STATE, { state: "enabled" });
+        }
+      } else if (newState === "saving") {
+        if (previousState === "enabled") {
+          // Enter saving from enabled
+          editorState = "saving";
+          document.body.setAttribute("data-sg-saving", "true");
+          // No message needed - saving is internal state
+        }
+      } else if (newState === "disabled") {
+        disable();
+        // Confirm state change to platform
+        sendMessage(MESSAGE_TYPES.EDIT_MODE_STATE, { state: "disabled" });
+      }
     },
 
     [MESSAGE_TYPES.UPDATE_TEXT_CONTENT]: (payload) => {
@@ -814,42 +591,12 @@
         return;
       }
 
-      if (payload.fontSize) {
-        selectedElement.style.fontSize = payload.fontSize;
-      }
-      if (payload.fontWeight) {
-        selectedElement.style.fontWeight = payload.fontWeight;
-      }
-      if (payload.fontStyle) {
-        selectedElement.style.fontStyle = payload.fontStyle;
-      }
-      if (payload.textDecoration) {
-        selectedElement.style.textDecoration = payload.textDecoration;
-      }
-      if (payload.lineHeight) {
-        selectedElement.style.lineHeight = payload.lineHeight;
-      }
-      if (payload.color) {
-        selectedElement.style.color = payload.color;
-      }
-      if (payload.backgroundColor) {
-        selectedElement.style.backgroundColor = payload.backgroundColor;
-      }
-      if (payload.textAlign) {
-        selectedElement.style.textAlign = payload.textAlign;
-      }
-      if (payload.padding) {
-        selectedElement.style.padding = payload.padding;
-      }
-      if (payload.margin) {
-        selectedElement.style.margin = payload.margin;
-      }
-      if (payload.borderRadius) {
-        selectedElement.style.borderRadius = payload.borderRadius;
-      }
-      if (payload.boxShadow) {
-        selectedElement.style.boxShadow = payload.boxShadow;
-      }
+      // Dynamically apply all style properties from payload
+      Object.keys(payload).forEach((styleProp) => {
+        if (payload[styleProp] !== undefined && payload[styleProp] !== null) {
+          selectedElement.style[styleProp] = payload[styleProp];
+        }
+      });
     },
 
     [MESSAGE_TYPES.UPDATE_CLASSES]: (payload) => {
@@ -881,7 +628,10 @@
         });
       }
 
-      console.debug("[Visual Editor] Updated className:", selectedElement.className);
+      console.debug(
+        "[Visual Editor] Updated className:",
+        selectedElement.className
+      );
     },
 
     [MESSAGE_TYPES.DELETE_ELEMENT]: () => {
@@ -890,7 +640,6 @@
         console.debug("[Visual Editor] Deleting selected element from DOM");
         selectedElement.parentNode.removeChild(selectedElement);
         selectedElement = null;
-        hoveredElement = null;
       }
     },
 
@@ -898,16 +647,12 @@
       // Stop any inline editing
       stopInlineEditing(false);
 
-      // Clear selection highlight
+      // Clear selection highlight and restore original styles
       if (selectedElement) {
         clearElementHighlight(selectedElement, "select");
+        // Restore original inline styles (remove any applied by platform)
+        selectedElement.setAttribute("style", originalInlineStyles);
         selectedElement = null;
-      }
-
-      // Clear hover highlight
-      if (hoveredElement) {
-        clearElementHighlight(hoveredElement, "hover");
-        hoveredElement = null;
       }
 
       sendMessage(MESSAGE_TYPES.SELECTION_CLEARED, {});
@@ -919,12 +664,6 @@
     if (!e.data || typeof e.data !== "object") return;
     if (e.data.source !== "softgen-editor") return;
     if (e.source !== window.parent) return;
-
-    // Validate origin
-    if (!ALLOWED_ORIGINS.includes("*") && !ALLOWED_ORIGINS.includes(e.origin)) {
-      console.warn("[Visual Editor] Unauthorized origin:", e.origin);
-      return;
-    }
 
     const { type, payload } = e.data;
 
@@ -940,9 +679,7 @@
   // Send ready signal
   function init() {
     const ready = () => {
-      sendMessage(MESSAGE_TYPES.EDIT_MODE_READY, {
-        enabled: false,
-        ready: true,
+      sendMessage(MESSAGE_TYPES.READY, {
         url: window.location.href,
         timestamp: new Date().toISOString(),
       });
