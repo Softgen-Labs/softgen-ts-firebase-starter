@@ -96,11 +96,7 @@ export default function softgenElementTagger(source) {
           // Example: <Button> becomes <Button data-sg-el="..." data-sg-name="...">
           const insertPosition = node.name.end;
           magicString.appendLeft(insertPosition, attributesString);
-
-          insertCount++;
         } catch (elementError) {
-          errorCount++;
-
           console.warn(
             `[Softgen Element Tagger] Failed to tag element in ${filePath}:`,
             elementError.message
