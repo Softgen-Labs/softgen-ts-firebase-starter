@@ -478,6 +478,13 @@
       } else if (newState === "saving") {
         document.body.setAttribute("data-sg-saving", "true");
         isSavingInProgress = true;
+
+        stopInlineEditing(false);
+
+        if (selectedElement) {
+          clearElementHighlight(selectedElement, "select");
+          selectedElement = null;
+        }
       }
     },
 
