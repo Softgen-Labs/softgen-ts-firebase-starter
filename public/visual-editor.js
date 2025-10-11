@@ -329,8 +329,11 @@
       const isTextElement =
         editCheck.isTextEditable && hasDirectTextContent(el);
 
-      selectedElement = el;
+      if (editingElement === el) {
+        return;
+      }
 
+      selectedElement = el;
       el.setAttribute("data-sg-selected", "true");
 
       sendMessage(MESSAGE_TYPES.ELEMENT_CLICKED, buildElementPayload(el, true));
