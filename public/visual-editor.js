@@ -291,6 +291,7 @@
       element: {
         tagName: tagName,
         textContent: getTextContent(el),
+        className: el.className || "",
       },
       isTextEditable: editabilityCheck.isTextEditable,
       canEditStyles: editabilityCheck.canEditStyles,
