@@ -7,7 +7,7 @@ RUN apk add --no-cache git
 # Clone the template repository during image build - force pull latest
 RUN git clone https://github.com/Softgen-Labs/softgen-ts-firebase-starter /template-files && \
     cd /template-files && \
-    git pull origin visual-editor && \
+    git pull origin main && \
     rm -rf /template-files/.git /template-files/.github # Remove to avoid conflicts
 
 # Final stage
@@ -16,7 +16,7 @@ FROM node:22-alpine
 # Metadata
 LABEL maintainer="Softgen AI"
 LABEL description="Softgen AI Starter"
-LABEL version="2.4.0-11"
+LABEL version="2.4.0"
 
 # Install global dependencies and security updates
 RUN npm install -g pm2 vercel && \
