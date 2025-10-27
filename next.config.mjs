@@ -15,19 +15,15 @@ function isElementTaggerAvailable() {
 // Build turbo rules only if tagger is available
 function getTurboRules() {
   if (!isElementTaggerAvailable()) {
-    console.log("[Softgen] Element tagger not found, skipping loader configuration");
+    console.log(
+      "[Softgen] Element tagger not found, skipping loader configuration"
+    );
     return {};
   }
 
   return {
-    "*.tsx": {
-      loaders: ["@softgenai/element-tagger"],
-      as: "*.tsx",
-    },
-    "*.jsx": {
-      loaders: ["@softgenai/element-tagger"],
-      as: "*.jsx",
-    },
+    "*.tsx": ["@softgenai/element-tagger"],
+    "*.jsx": ["@softgenai/element-tagger"],
   };
 }
 
