@@ -7,14 +7,15 @@ interface SEOProps {
   url?: string;
 }
 
-export default function SEO({
+// SEO elements that can be used in _document.tsx (returns JSX without Head wrapper)
+export function SEOElements({
   title = "Hello World",
   description = "Welcome to my app",
   image = "/og-image.png",
   url,
 }: SEOProps) {
   return (
-    <Head>
+    <>
       <title>{title}</title>
       <meta name="description" content={description} />
       <link rel="icon" href="/favicon.ico" />
@@ -34,6 +35,15 @@ export default function SEO({
 
       {/* Viewport and mobile optimization */}
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+    </>
+  );
+}
+
+// Default SEO component for use in pages/_app.tsx or individual pages (uses next/head)
+export default function SEO(props: SEOProps) {
+  return (
+    <Head>
+      <SEOElements {...props} />
     </Head>
   );
 }
