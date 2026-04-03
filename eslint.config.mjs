@@ -9,7 +9,9 @@ const compat = new FlatCompat({
   baseDirectory: __dirname,
 });
 
-const baseConfig = [...compat.extends("next/core-web-vitals", "next/typescript")];
+const baseConfig = [
+  ...compat.extends("next/core-web-vitals", "next/typescript"),
+];
 
 const eslintConfig = [
   ...baseConfig,
@@ -19,6 +21,7 @@ const eslintConfig = [
       "@typescript-eslint/no-unused-vars": "warn",
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-non-null-assertion": "warn",
+      "@next/next/no-html-link-for-pages": "warn",
     },
   },
 ];
