@@ -29,10 +29,8 @@ function getTurboRules() {
 
 const nextConfig = {
   reactStrictMode: true,
-  experimental: {
-    turbo: {
-      rules: getTurboRules(),
-    },
+  turbopack: {
+    rules: getTurboRules(),
   },
   images: {
     remotePatterns: [
