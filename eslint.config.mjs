@@ -24,6 +24,9 @@ const eslintConfig = [
       "@next/next/no-html-link-for-pages": "warn",
     },
   },
+  {
+    ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts"],
+  },
 ];
 
 export default eslintConfig;
