@@ -25,6 +25,12 @@ const eslintConfig = [
     },
   },
   {
+    files: ["*.config.{ts,js,mjs,cjs}"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+  {
     ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts"],
   },
 ];
