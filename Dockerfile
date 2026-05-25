@@ -1,5 +1,5 @@
 # Build stage to clone template
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 
 # Install git for cloning
 RUN apk add --no-cache git
@@ -11,17 +11,25 @@ RUN git clone https://github.com/Softgen-Labs/softgen-ts-firebase-starter /templ
     rm -rf /template-files/.git /template-files/.github # Remove to avoid conflicts
 
 # Final stage
-FROM node:22-alpine
+FROM node:24-alpine
 
 # Metadata
 LABEL maintainer="Softgen AI"
 LABEL description="Softgen AI Starter"
-LABEL version="2.4.4"
+LABEL version="3.0.1"
 
-# Install global dependencies and security updates
-RUN npm install -g pm2 vercel && \
-    apk add --no-cache tmux git && \
-    apk upgrade --no-cache
+# Install global dependencies
+RUN apk add --no-cache \
+        bash \
+        curl \
+        git \
+        jq \
+        less \
+        ripgrep \
+        tmux \
+        unzip && \
+    apk upgrade --no-cache && \
+    npm install -g pm2
 
 # Create non-root user with explicit UID/GID for consistency
 RUN addgroup -g 1001 -S softgen && \
